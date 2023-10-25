@@ -1,10 +1,11 @@
-from utils import get_embeddings, get_chat_completion
+from collections import Counter
+import evaluate
+import streamlit as st
+import traceback
 import numpy as np
 from numpy.linalg import norm
-from collections import Counter
-import traceback
-import streamlit as st
-import evaluate
+from utils import get_embeddings, get_chat_completion
+
 
 class Metrics:
     def __init__(self, question, context, answer, config, strictness=1):
@@ -19,28 +20,32 @@ class Metrics:
     def rouge_score(self):
         try:
             if not self.answer or not self.context:
-                raise ValueError("Please provide both context and answer to generate Rouge Score.")
-            
-            rouge = evaluate.load('rouge')
+                raise ValueError(
+                    "Please provide both context and answer to generate Rouge Score."
+                )
+
+            rouge = evaluate.load("rouge")
             results = rouge.compute(predictions=self.answer, references=self.context)
             rouge1 = np.round(results["rouge1"], 3)
             rouge2 = np.round(results["rouge2"], 3)
             rougeL = np.round(results["rougeL"], 3)
             return rouge1, rouge2, rougeL
-    
+
         except Exception as e:
             func_name = traceback.extract_stack()[-1].name
             st.error(f"Error in {func_name}: {str(e)}")
-    
+
     def bleu_score(self):
         try:
             if not self.answer or not self.context:
-                raise ValueError("Please provide both context and answer to generate BLEU Score.")
-            
-            bleu = evaluate.load('bleu')
+                raise ValueError(
+                    "Please provide both context and answer to generate BLEU Score."
+                )
+
+            bleu = evaluate.load("bleu")
             results = bleu.compute(predictions=self.answer, references=self.context)
             return np.round(results["bleu"], 3)
-    
+
         except Exception as e:
             func_name = traceback.extract_stack()[-1].name
             st.error(f"Error in {func_name}: {str(e)}")
@@ -48,23 +53,31 @@ class Metrics:
     def bert_score(self):
         try:
             if not self.answer or not self.context:
-                raise ValueError("Please provide both context and answer to generate BLEU Score.")
-            
-            bertscore = evaluate.load('bertscore')
-            results = bertscore.compute(predictions=self.answer, references=self.context, lang="en", \
-                                        model_type="distilbert-base-uncased")
+                raise ValueError(
+                    "Please provide both context and answer to generate BLEU Score."
+                )
+
+            bertscore = evaluate.load("bertscore")
+            results = bertscore.compute(
+                predictions=self.answer,
+                references=self.context,
+                lang="en",
+                model_type="distilbert-base-uncased",
+            )
             return np.round(results["f1"], 3)
-    
+
         except Exception as e:
             func_name = traceback.extract_stack()[-1].name
             st.error(f"Error in {func_name}: {str(e)}")
-    
+
     def answer_relevancy(self):
         try:
             if not self.answer or not self.question:
-                raise ValueError("Please provide both question and answer to generate Answer Relevancy Score.")
-            
-            relevancy_prompt = f"""
+                raise ValueError(
+                    "Please provide both question and answer to generate Answer Relevancy Score."
+                )
+
+            relevancy_prompt = """
             Generate question for the given answer.
 
             Here are few examples:
@@ -76,28 +89,36 @@ class Metrics:
             
             Using the answer provided below, generate a question which is relevant to the answer.
             """
-            
+
             answer_relevancy_score = []
 
             for _ in range(self.strictness):
-                generated_question = get_chat_completion(self.config, relevancy_prompt, self.answer)
+                generated_question = get_chat_completion(
+                    self.config, relevancy_prompt, self.answer
+                )
                 question_vec = np.asarray(get_embeddings(self.question.strip()))
-                generated_question_vec = np.asarray(get_embeddings(generated_question.strip()))
-                score = np.dot(generated_question_vec, question_vec)/(norm(generated_question_vec) * norm(question_vec))
+                generated_question_vec = np.asarray(
+                    get_embeddings(generated_question.strip())
+                )
+                score = np.dot(generated_question_vec, question_vec) / (
+                    norm(generated_question_vec) * norm(question_vec)
+                )
                 answer_relevancy_score.append(score)
 
             return np.round(np.mean(answer_relevancy_score), 3)
-        
+
         except Exception as e:
             func_name = traceback.extract_stack()[-1].name
             st.error(f"Error in {func_name}: {str(e)}")
-    
+
     def critique(self, criteria):
         try:
             if not self.answer or not self.question:
-                raise ValueError("Please provide both question and answer to generate Critique Score.")
+                raise ValueError(
+                    "Please provide both question and answer to generate Critique Score."
+                )
 
-            critique_prompt = f"""
+            critique_prompt = """
             Given a question and answer. Evaluate the answer only using the given criteria. 
             Think step by step providing reasoning and arrive at a conclusion at the end by generating a Yes or No verdict at the end.
                         
@@ -111,30 +132,36 @@ class Metrics:
             responses = []
             answer_dict = {"Yes": 1, "No": 0}
             reversed_answer_dict = {1: "Yes", 0: "No"}
-            input = f"question: {self.question}\nanswer: {self.answer}\ncriteria: {criteria}\nHere are my thoughts:"
+            critique_input = f"question: {self.question}\nanswer: {self.answer}\ncriteria: {criteria}\nHere are my thoughts:"
 
             for _ in range(self.strictness):
-                response = get_chat_completion(self.config, critique_prompt, input)
+                response = get_chat_completion(
+                    self.config, critique_prompt, critique_input
+                )
                 response = response.split("\n\n")[-1]
                 responses.append(response)
-            
+
             if self.strictness > 1:
-                critique_score = Counter([answer_dict.get(response, 0) for response in responses]).most_common(1)[0][0]
+                critique_score = Counter(
+                    [answer_dict.get(response, 0) for response in responses]
+                ).most_common(1)[0][0]
             else:
                 critique_score = answer_dict.get(responses[-1], 0)
 
             return reversed_answer_dict[critique_score]
-        
+
         except Exception as e:
             func_name = traceback.extract_stack()[-1].name
             st.error(f"Error in {func_name}: {str(e)}")
-    
+
     def faithfulness(self):
         try:
             if not self.answer or not self.question or not self.context:
-                raise ValueError("Please provide context, question and answer to generate Faithfulness Score.")
-            
-            generate_statements_prompt = f"""
+                raise ValueError(
+                    "Please provide context, question and answer to generate Faithfulness Score."
+                )
+
+            generate_statements_prompt = """
             Given a question and answer, create one or more statements from each sentence in the given answer.
             question: Who is Sachin Tendulkar and what is he best known for?
             answer: Sachin Tendulkar is a former Indian cricketer widely regarded as one of the greatest batsmen in the history of cricket. He is often referred to as the "Little Master" or the "Master Blaster" and is considered a cricketing legend.
@@ -146,16 +173,25 @@ class Metrics:
             answer: Franklin D. Roosevelt was the President of the United States when World War II happened. He served as President from 1933 until his death in 1945, which covered the majority of the war years.
             statements:\nFranklin D. Roosevelt was the President of the United States during World War II.\nFranklin D. Roosevelt served as President from 1933 until his death in 1945.
             """
-            
-            input = f"question: {self.question}\nanswer: {self.answer}\nstatements:\n"
-            
+
+            generate_statements_input = (
+                f"question: {self.question}\nanswer: {self.answer}\nstatements:\n"
+            )
+
             faithfulness_score = []
 
             for _ in range(self.strictness):
-                generated_statements = get_chat_completion(self.config, generate_statements_prompt, input)
-                generated_statements = "\n".join([f"{i+1}. {st}" for i, st in enumerate(generated_statements.split("\n"))])
+                generated_statements = get_chat_completion(
+                    self.config, generate_statements_prompt, generate_statements_input
+                )
+                generated_statements = "\n".join(
+                    [
+                        f"{i+1}. {st}"
+                        for i, st in enumerate(generated_statements.split("\n"))
+                    ]
+                )
 
-                nli_prompt = f"""
+                nli_prompt = """
                 Prompt: Natural language inference
                 Consider the given context and following statements, then determine whether they are supported by the information present in the context.Provide a brief explanation for each statement before arriving at the verdict (Yes/No). Provide a final verdict for each statement in order at the end in the given format. Do not deviate from the specified format.
 
@@ -179,7 +215,7 @@ class Metrics:
 
                 results = get_chat_completion(self.config, nli_prompt, nli_input)
                 results = results.lower().strip()
-                
+
                 final_answer = "Final verdict for each statement in order:".lower()
                 if results.find(final_answer) != -1:
                     results = results[results.find(final_answer) + len(final_answer) :]
@@ -188,13 +224,13 @@ class Metrics:
 
                 else:
                     no_count = results.count("verdict: no")
-                    yes_count =  results.count("verdict: yes")
+                    yes_count = results.count("verdict: yes")
                     score = "Yes" if yes_count >= no_count else "No"
 
                 faithfulness_score.append(score)
-                
+
             return max(faithfulness_score)
-        
+
         except Exception as e:
             func_name = traceback.extract_stack()[-1].name
             st.error(f"Error in {func_name}: {str(e)}")
