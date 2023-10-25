@@ -1,4 +1,4 @@
-# LLM - Prompt Testing
+# Prompt Testing framework for LLM models
 ## Objective:
 As LLM developers, we often face challenges in fine-tuning prompts to generate model answer which is more aligned with ground truth answer. Hence, I created this framework so that anyone can run this streamlit app to add multiple system prompts, fine-tune each prompt (using chain-of-thought, few-shot etc.), and then compare multiple system prompts based on the model-generated answer quality. Quality of answers can be measured using NLP metrics such as ROUGE, BLEU, or BERTScore and Responsible AI metrics such as Faithfulness, Answer Relevancy Score, Harmfulness etc.
 
