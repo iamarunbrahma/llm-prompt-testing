@@ -220,7 +220,7 @@ class Metrics:
                 if results.find(final_answer) != -1:
                     results = results[results.find(final_answer) + len(final_answer) :]
                     results_lst = [ans.lower().strip() for ans in results.split(".")]
-                    score = max(results_lst)
+                    score = max(results_lst).capitalize()
 
                 else:
                     no_count = results.count("verdict: no")
