@@ -1,94 +1,82 @@
-# LLM Prompt Testing Framework v2.0
+# LLM Prompt Testing Framework
 
-A Streamlit-based framework for systematically testing and comparing LLM system prompts across multiple providers. Evaluate answer quality using NLP metrics and LLM-as-Judge evaluation.
+A Streamlit app to test and compare LLM system prompts. Write multiple prompts, generate answers from any LLM provider, and measure quality using NLP and LLM-based metrics.
 
 ## Features
 
-### Multi-Provider Support
-Test prompts across any LLM provider via [LiteLLM](https://github.com/BerriAI/litellm):
-- **OpenAI**: GPT-4o, GPT-4 Turbo, o4-mini, o3-mini
-- **Anthropic**: Claude Sonnet/Opus/Haiku
-- **Google**: Gemini 2.5 Pro, Gemini Flash
-- **Ollama**: Llama 3, Mistral, CodeLlama (local)
-- **100+ other providers** via custom model names
+**Multi-provider support** via [LiteLLM](https://github.com/BerriAI/litellm):
+- OpenAI (GPT-4o, o4-mini, o3-mini)
+- Anthropic (Claude Sonnet, Opus, Haiku)
+- Google (Gemini 2.5 Pro, Flash)
+- Ollama (Llama 3, Mistral, local models)
+- 100+ others with custom model names
 
-### Evaluation Metrics
+**NLP Metrics** (compared against a ground truth reference answer):
+- ROUGE (1, 2, L), BLEU, BERTScore
 
-**NLP Metrics** (compare against ground truth reference):
-- **ROUGE** (ROUGE-1, ROUGE-2, ROUGE-L)
-- **BLEU**
-- **BERTScore** (using `distilbert-base-uncased`)
+**LLM Judge Metrics** (a separate model scores the answers):
+- Answer Relevancy: generates a question from the answer and checks cosine similarity to the original
+- Faithfulness: extracts factual statements and verifies them against the context (returns a 0-1 ratio)
+- Critique: binary yes/no on criteria like harmfulness, coherence, correctness
+- Rubric Scoring: user-defined 1-5 scale criteria
+- Pairwise Comparison: head-to-head with position debiasing (runs both orderings)
 
-**LLM Judge Metrics** (model-based evaluation):
-- **Answer Relevancy** — Regenerate question from answer, measure cosine similarity to original
-- **Faithfulness** — Extract factual statements, verify against context via NLI (returns 0.0-1.0 ratio)
-- **Critique** — Binary evaluation against criteria (Harmfulness, Coherence, Correctness, etc.)
-- **Rubric Scoring** — User-defined 1-5 scale criteria with custom descriptions
-- **Pairwise Comparison** — Head-to-head comparison with reasoning
-
-### Key Capabilities
-- Compare up to 10 system prompts side-by-side
-- **Prompt templates** with `{{variable}}` support for sweep testing
-- **Response caching** to avoid redundant API calls
-- **Cost & latency tracking** per request (tokens in/out, estimated cost)
-- **Batch CSV evaluation** with column auto-mapping
-- **Separate judge model** configuration (use a different model for evaluation)
-- **Comparison dashboard** with charts, pairwise matrix, and export
+**Other capabilities:**
+- Compare up to 10 system prompts side by side
+- Prompt templates with `{{variable}}` placeholders
+- Response caching to skip redundant API calls
+- Token count, latency, and cost tracking per request
+- Batch evaluation from CSV files
+- Separate judge model config (use a cheaper model for scoring)
+- Comparison dashboard with charts and JSON/CSV export
 
 ## Pages
 
-| Page | Description |
+| Page | What it does |
 |------|-------------|
-| **Prompt Lab** | Single-question testing with full metrics |
-| **Batch Eval** | CSV upload for bulk evaluation |
-| **Comparison** | Visualize and export results |
+| Prompt Lab | Test one question with multiple prompts, see metrics |
+| Batch Eval | Upload a CSV, evaluate all rows, download results |
+| Comparison | Charts, pairwise matrix, cost summary, export |
 
-## Setup
+## Getting Started
 
-### Install dependencies
 ```bash
 pip install -r requirements.txt
-```
-
-### Run the app
-```bash
 streamlit run app.py
 ```
 
-### Provider setup
+**Cloud providers** (OpenAI, Anthropic, Google): paste your API key in the sidebar.
 
-**OpenAI / Anthropic / Google**: Enter your API key in the sidebar.
+**Ollama** (local): install [Ollama](https://ollama.ai), run `ollama pull llama3`, select "ollama" as the provider. No API key needed.
 
-**Ollama (local)**: Install [Ollama](https://ollama.ai), pull a model (`ollama pull llama3`), and select "ollama" as the provider. No API key needed.
-
-**Custom providers**: Toggle "Custom model name" in the sidebar and enter the LiteLLM model identifier (e.g., `together_ai/meta-llama/Llama-3-70b`).
+**Custom providers**: toggle "Custom model name" and enter the LiteLLM model ID (e.g. `together_ai/meta-llama/Llama-3-70b`).
 
 ## CSV Format
 
-For batch evaluation, your CSV should have columns for questions and contexts. A ground truth column is optional but enables NLP metrics.
+For batch evaluation, your CSV needs question and context columns. A ground truth column is optional but required for NLP metrics.
 
 | Question | Context | Ground Truth |
 |----------|---------|-------------|
 | What is X? | X is defined as... | X is a concept that... |
 
-Column names are auto-detected. You can manually map them if they differ.
+Column names are auto-detected. You can remap them manually if needed.
 
-## Architecture
+## Project Structure
 
 ```
-app.py                  → Entry point, sidebar config, navigation
+app.py                  Entry point, sidebar config, navigation
 pages/
-  1_prompt_lab.py       → Single-question testing + metrics
-  2_batch_eval.py       → CSV batch processing
-  3_comparison.py       → Results visualization + export
+  1_prompt_lab.py       Single-question testing + metrics
+  2_batch_eval.py       CSV batch processing
+  3_comparison.py       Results visualization + export
 core/
-  schemas.py            → Pydantic data models (immutable config)
-  llm_client.py         → LiteLLM wrapper with caching + cost tracking
-  metrics.py            → NLPMetrics + LLMJudge evaluation engine
-  cache.py              → SHA-256 hash-based response caching
-  templates.py          → {{variable}} template rendering
+  schemas.py            Pydantic data models
+  llm_client.py         LiteLLM wrapper, caching, cost tracking
+  metrics.py            NLP metrics + LLM judge evaluation
+  cache.py              Hash-based response caching
+  templates.py          Template variable rendering
 ```
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).
