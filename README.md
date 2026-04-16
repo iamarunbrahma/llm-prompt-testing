@@ -1,3 +1,15 @@
+---
+title: LLM Prompt Testing
+emoji: "\U0001F52C"
+colorFrom: blue
+colorTo: purple
+sdk: streamlit
+sdk_version: "1.56.0"
+app_file: app.py
+pinned: false
+license: mit
+---
+
 # LLM Prompt Testing Framework
 
 A Streamlit app to test and compare LLM system prompts. Write multiple prompts, generate answers from any LLM provider, and measure quality using NLP and LLM-based metrics.
