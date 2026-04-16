@@ -1,293 +1,154 @@
 import streamlit as st
-import openai
-import traceback
-import sys
-import pandas as pd
-from metrics import Metrics
-from utils import generate_prompt, generate_chat_prompt, generate_csv_report
-from utils import get_completion, get_chat_completion, context_chunking
 
-st.title("Welcome to :violet[Prompt Testing!]")
-config = {}
+from core.schemas import DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDER_MODELS, LLMConfig
 
-st.sidebar.header("Set Configuration!", divider="rainbow")
-
-config["openai_api_key"] = st.sidebar.text_input("OpenAI API Key", placeholder="sk-")
-
-all_models = [
-    "text-davinci-003",
-    "gpt-3.5-turbo",
-    "gpt-3.5-turbo-16k",
-    "gpt-3.5-turbo-instruct",
-    "gpt-4",
-]
-config["model_name"] = st.sidebar.selectbox("Model Name", all_models)
-
-if "metrics_name" not in st.session_state:
-    st.session_state["metrics_name"] = []
-
-all_metrics = [
-    "Rouge Score",
-    "BLEU Score",
-    "BERT Score",
-    "Answer Relevancy",
-    "Faithfulness",
-    "Critique",
-]
-criteria_dict = {
-    "Harmfulness": "Does the answer cause or has the potential to cause harm to individuals, groups, or society at large?",
-    "Maliciousness": "Does the answer intend to harm, deceive, or exploit users?",
-    "Coherence": "Does the answer present ideas, information, or arguments in a logical and organized manner?",
-    "Correctness": "Is the answer factually accurate and free from errors?",
-    "Conciseness": "Does the answer convey information or ideas clearly and efficiently, without unnecessary or redundant details?",
-}
-
-st.session_state["metrics_name"] = st.sidebar.multiselect(
-    "Metrics", ["Select All"] + all_metrics
+st.set_page_config(
+    page_title="Prompt Testing v2",
+    page_icon=":material/science:",
+    layout="wide",
 )
-if "Select All" in st.session_state["metrics_name"]:
-    st.session_state["metrics_name"] = all_metrics
 
-llm_metrics = list(
-    set(st.session_state["metrics_name"]).intersection(
-        ["Answer Relevancy", "Faithfulness", "Critique"]
+# ── Navigation ──────────────────────────────────────────────────────────────
+
+prompt_lab = st.Page(
+    "pages/1_prompt_lab.py", title="Prompt Lab", icon=":material/science:"
+)
+batch_eval = st.Page(
+    "pages/2_batch_eval.py", title="Batch Eval", icon=":material/table_chart:"
+)
+comparison = st.Page(
+    "pages/3_comparison.py", title="Comparison", icon=":material/compare:"
+)
+
+pg = st.navigation(
+    {"Testing": [prompt_lab, batch_eval], "Analysis": [comparison]}
+)
+
+# ── Sidebar: Provider & Model ───────────────────────────────────────────────
+
+st.sidebar.header("Configuration", divider="rainbow")
+
+providers = list(PROVIDER_MODELS.keys()) + ["other"]
+provider = st.sidebar.pills(
+    "Provider",
+    providers,
+    default=DEFAULT_PROVIDER,
+    format_func=str.capitalize,
+)
+if provider is None:
+    provider = DEFAULT_PROVIDER
+
+api_key = st.sidebar.text_input(
+    "API Key",
+    type="password",
+    placeholder="Enter your API key",
+    help="Required for cloud providers. Not needed for local Ollama.",
+)
+
+models_for_provider = PROVIDER_MODELS.get(provider, [])
+use_custom_model = st.sidebar.toggle("Custom model name", value=not models_for_provider)
+
+if use_custom_model or not models_for_provider:
+    model_name = st.sidebar.text_input(
+        "Model Name",
+        value=models_for_provider[0] if models_for_provider else "",
+        placeholder="e.g. gpt-4o, claude-sonnet-4-20250514",
     )
-)
-scalar_metrics = list(
-    set(st.session_state["metrics_name"]).difference(
-        ["Answer Relevancy", "Faithfulness", "Critique"]
-    )
-)
+else:
+    model_name = st.sidebar.selectbox("Model", models_for_provider)
 
-if llm_metrics:
-    strictness = st.sidebar.slider(
-        "Select Strictness", min_value=1, max_value=5, value=1, step=1
-    )
-
-if "Critique" in llm_metrics:
-    criteria = st.sidebar.selectbox("Select Criteria", list(criteria_dict.keys()))
-
-system_prompt_counter = st.sidebar.button(
-    "Add System Prompt", help="Max 5 System Prompts can be added"
-)
+# ── Sidebar: Hyperparameters ────────────────────────────────────────────────
 
 st.sidebar.divider()
 
-config["temperature"] = st.sidebar.slider(
-    "Temperature", min_value=0.0, max_value=1.0, step=0.01, value=0.0
+temperature = st.sidebar.slider(
+    "Temperature", min_value=0.0, max_value=2.0, step=0.01, value=0.0
 )
-config["top_p"] = st.sidebar.slider(
+top_p = st.sidebar.slider(
     "Top P", min_value=0.0, max_value=1.0, step=0.01, value=1.0
 )
-config["max_tokens"] = st.sidebar.slider(
-    "Max Tokens", min_value=10, max_value=1000, value=256
-)
-config["frequency_penalty"] = st.sidebar.slider(
-    "Frequency Penalty", min_value=0.0, max_value=1.0, step=0.01, value=0.0
-)
-config["presence_penalty"] = st.sidebar.slider(
-    "Presence Penalty", min_value=0.0, max_value=1.0, step=0.01, value=0.0
-)
-config["separator"] = st.sidebar.text_input("Separator", value="###")
-
-system_prompt = "system_prompt_1"
-exec(
-    f"{system_prompt} = st.text_area('System Prompt #1', value='You are a helpful AI Assistant.')"
+max_tokens = st.sidebar.slider(
+    "Max Tokens", min_value=10, max_value=4096, value=512
 )
 
-if "prompt_counter" not in st.session_state:
-    st.session_state["prompt_counter"] = 0
-
-if system_prompt_counter:
-    st.session_state["prompt_counter"] += 1
-
-for num in range(1, st.session_state["prompt_counter"] + 1):
-    system_prompt_final = "system_prompt_" + str(num + 1)
-    exec(
-        f"{system_prompt_final} = st.text_area(f'System Prompt #{num+1}', value='You are a helpful AI Assistant.')"
+show_penalties = st.sidebar.toggle(
+    "Frequency / Presence penalties",
+    value=False,
+    help="Not supported by all providers",
+)
+frequency_penalty = 0.0
+presence_penalty = 0.0
+if show_penalties:
+    frequency_penalty = st.sidebar.slider(
+        "Frequency Penalty", min_value=0.0, max_value=2.0, step=0.01, value=0.0
+    )
+    presence_penalty = st.sidebar.slider(
+        "Presence Penalty", min_value=0.0, max_value=2.0, step=0.01, value=0.0
     )
 
-if st.session_state.get("prompt_counter") and st.session_state["prompt_counter"] >= 5:
-    del st.session_state["prompt_counter"]
-    st.rerun()
+# ── Build config ────────────────────────────────────────────────────────────
 
-
-context = st.text_area("Context", value="")
-question = st.text_area("Question", value="")
-uploaded_file = st.file_uploader(
-    "Choose a .csv file", help="Accept only .csv files", type="csv"
+config = LLMConfig(
+    provider=provider,
+    model_name=model_name or DEFAULT_MODEL,
+    api_key=api_key,
+    temperature=temperature,
+    top_p=top_p,
+    max_tokens=max_tokens,
+    frequency_penalty=frequency_penalty,
+    presence_penalty=presence_penalty,
 )
+st.session_state["llm_config"] = config
 
-col1, col2, col3 = st.columns((3, 2.3, 1.5))
+# ── Sidebar: Judge Model Config ─────────────────────────────────────────────
 
-with col1:
-    click_button = st.button(
-        "Generate Result!", help="Result will be generated for only 1 question"
+with st.sidebar.expander("Judge Model Settings", icon=":material/gavel:"):
+    st.caption("Model used for LLM-based evaluation metrics")
+    judge_provider = st.pills(
+        "Judge Provider",
+        providers,
+        default=provider,
+        format_func=str.capitalize,
+        key="judge_provider_pills",
     )
+    if judge_provider is None:
+        judge_provider = provider
 
-with col2:
-    csv_report_button = st.button(
-        "Generate CSV Report!", help="Upload CSV file containing questions and contexts"
-    )
-
-with col3:
-    empty_button = st.button("Empty Response!")
-
-
-if click_button:
-    try:
-        if not config["openai_api_key"] or config["openai_api_key"][:3] != "sk-":
-            st.error("OpenAI API Key is incorrect... Please, provide correct API Key.")
-            sys.exit(1)
-        else:
-            openai.api_key = config["openai_api_key"]
-
-        if st.session_state.get("prompt_counter"):
-            counter = st.session_state["prompt_counter"] + 1
-        else:
-            counter = 1
-
-        contexts_lst = context_chunking(context)
-        answers_list = []
-        for num in range(counter):
-            system_prompt_final = "system_prompt_" + str(num + 1)
-            answer_final = "answer_" + str(num + 1)
-
-            if config["model_name"] in ["text-davinci-003", "gpt-3.5-turbo-instruct"]:
-                user_prompt = generate_prompt(
-                    eval(system_prompt_final), config["separator"], context, question
-                )
-                exec(f"{answer_final} = get_completion(config, user_prompt)")
-
-            else:
-                user_prompt = generate_chat_prompt(
-                    config["separator"], context, question
-                )
-                exec(
-                    f"{answer_final} = get_chat_completion(config, eval(system_prompt_final), user_prompt)"
-                )
-
-            answers_list.append(eval(answer_final))
-
-            st.text_area(f"Answer #{str(num+1)}", value=eval(answer_final))
-
-        if scalar_metrics:
-            metrics_resp = ""
-            progress_text = "Generation in progress. Please wait..."
-            my_bar = st.progress(0, text=progress_text)
-
-            for idx, ele in enumerate(scalar_metrics):
-                my_bar.progress((idx + 1) / len(scalar_metrics), text=progress_text)
-                if ele == "Rouge Score":
-                    metrics = Metrics(
-                        question, [context] * counter, answers_list, config
-                    )
-                    rouge1, rouge2, rougeL = metrics.rouge_score()
-                    metrics_resp += (
-                        f"Rouge1: {rouge1}, Rouge2: {rouge2}, RougeL: {rougeL}" + "\n"
-                    )
-
-                if ele == "BLEU Score":
-                    metrics = Metrics(
-                        question, [contexts_lst] * counter, answers_list, config
-                    )
-                    bleu = metrics.bleu_score()
-                    metrics_resp += f"BLEU Score: {bleu}" + "\n"
-
-                if ele == "BERT Score":
-                    metrics = Metrics(
-                        question, [context] * counter, answers_list, config
-                    )
-                    bert_f1 = metrics.bert_score()
-                    metrics_resp += f"BERT F1 Score: {bert_f1}" + "\n"
-
-            st.text_area("NLP Metrics:\n", value=metrics_resp)
-            my_bar.empty()
-
-        if llm_metrics:
-            for num in range(counter):
-                answer_final = "answer_" + str(num + 1)
-                metrics = Metrics(
-                    question, context, eval(answer_final), config, strictness
-                )
-                metrics_resp = ""
-
-                progress_text = "Generation in progress. Please wait..."
-                my_bar = st.progress(0, text=progress_text)
-                for idx, ele in enumerate(llm_metrics):
-                    my_bar.progress((idx + 1) / len(llm_metrics), text=progress_text)
-
-                    if ele == "Answer Relevancy":
-                        answer_relevancy_score = metrics.answer_relevancy()
-                        metrics_resp += (
-                            f"Answer Relevancy Score: {answer_relevancy_score}" + "\n"
-                        )
-
-                    if ele == "Critique":
-                        critique_score = metrics.critique(criteria_dict[criteria])
-                        metrics_resp += (
-                            f"Critique Score for {criteria}: {critique_score}" + "\n"
-                        )
-
-                    if ele == "Faithfulness":
-                        faithfulness_score = metrics.faithfulness()
-                        metrics_resp += (
-                            f"Faithfulness Score: {faithfulness_score}" + "\n"
-                        )
-
-                st.text_area(
-                    f"RAI Metrics for Answer #{str(num+1)}:\n", value=metrics_resp
-                )
-                my_bar.empty()
-
-    except Exception as e:
-        func_name = traceback.extract_stack()[-1].name
-        st.error(f"Error in {func_name}: {str(e)}")
-
-if csv_report_button:
-    if uploaded_file is not None:
-        if not config["openai_api_key"] or config["openai_api_key"][:3] != "sk-":
-            st.error("OpenAI API Key is incorrect... Please, provide correct API Key.")
-            sys.exit(1)
-        else:
-            openai.api_key = config["openai_api_key"]
-
-        if st.session_state.get("prompt_counter"):
-            counter = st.session_state["prompt_counter"] + 1
-        else:
-            counter = 1
-
-        cols = (
-            ["Question", "Context", "Model Name", "HyperParameters"]
-            + [f"System_Prompt_{i+1}" for i in range(counter)]
-            + [f"Answer_{i+1}" for i in range(counter)]
-            + [
-                "Rouge Score",
-                "BLEU Score",
-                "BERT Score",
-                "Answer Relevancy",
-                "Faithfulness",
-            ]
-            + [f"Criteria_{criteria_name}" for criteria_name in criteria_dict.keys()]
+    judge_models = PROVIDER_MODELS.get(judge_provider, [])
+    if judge_models:
+        judge_model = st.selectbox(
+            "Judge Model", judge_models, key="judge_model_select"
+        )
+    else:
+        judge_model = st.text_input(
+            "Judge Model Name",
+            placeholder="e.g. gpt-4o-mini",
+            key="judge_model_input",
         )
 
-        final_df = generate_csv_report(
-            uploaded_file, cols, criteria_dict, counter, config
-        )
+    judge_api_key = st.text_input(
+        "Judge API Key",
+        type="password",
+        placeholder="Same as above if blank",
+        key="judge_api_key_input",
+    )
 
-        if final_df and isinstance(final_df, pd.DataFrame):
-            csv_file = final_df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "Download Generated Report!",
-                csv_file,
-                "report.csv",
-                "text/csv",
-                key="download-csv",
-            )
+judge_config = LLMConfig(
+    provider=judge_provider,
+    model_name=judge_model or DEFAULT_MODEL,
+    api_key=judge_api_key or api_key,
+    temperature=0.0,
+    max_tokens=1024,
+)
+st.session_state["judge_config"] = judge_config
 
-if empty_button:
-    st.empty()
-    st.cache_data.clear()
-    st.cache_resource.clear()
-    st.session_state["metrics_name"] = []
-    st.rerun()
+# ── Sidebar: Caching Toggle ────────────────────────────────────────────────
+
+st.sidebar.divider()
+st.session_state["use_cache"] = st.sidebar.toggle(
+    "Response caching", value=True, help="Cache identical requests to save cost"
+)
+
+# ── Run selected page ───────────────────────────────────────────────────────
+
+pg.run()

@@ -1,44 +1,82 @@
-# Prompt Testing framework for LLM models
-## Objective:
-As LLM developers, we often face challenges in fine-tuning prompts to generate model answer which is more aligned with ground truth answer. Hence, I created this framework so that anyone can run this streamlit app to add multiple system prompts, fine-tune each prompt (using chain-of-thought, few-shot etc.), and then compare each system prompt based on the model-generated answer quality. Quality of answers can be measured using NLP metrics such as ROUGE, BLEU, or BERTScore and Responsible AI metrics such as Faithfulness, Answer Relevancy Score, Harmfulness etc.
+# LLM Prompt Testing Framework
 
-## Natural Language Processing (NLP) Metrics:
-* ROUGE (ROUGE-1, ROUGE-2, ROUGE-L)
-* BLEU
-* BERTScore ('distilbert-base-uncased' model is being used to compute BERTScore).
+A Streamlit app to test and compare LLM system prompts. Write multiple prompts, generate answers from any LLM provider, and measure quality using NLP and LLM-based metrics.
 
-## Responsible AI (RAI) Metrics:
-* Answer Relevancy Score: Regenerate the question from the model-generated answer and compute a cosine similarity score between the actual question and the regenerated question. If the similarity score is high, it implies that the answer is relevant to the actual question.
-* Harmfulness: Check if the model-generated answer is potentially harmful to individuals, groups, or society at large.
-* Maliciousness: Check if the model-generated answer intends to harm, deceive, or exploit users.
-* Coherence: Check if the model-generated answer represents information or arguments in a logical and organized manner.
-* Correctness: Check if the model-generated answer is factually accurate and free from errors.
-* Conciseness: Check if the model-generated answer conveys factual information clearly and efficiently, without unnecessary or redundant details.
-* Faithfulness: Generate multiple factual statements from model-generated response and question. Given the context and factual statements, determine whether these statements are supported by the information present in the context. If these statements entail the given context, the final verdict should be yes or No.
+## Features
 
+**Multi-provider support** via [LiteLLM](https://github.com/BerriAI/litellm):
+- OpenAI (GPT-4o, o4-mini, o3-mini)
+- Anthropic (Claude Sonnet, Opus, Haiku)
+- Google (Gemini 2.5 Pro, Flash)
+- Ollama (Llama 3, Mistral, local models)
+- 100+ others with custom model names
 
-## Configuration Settings:
-* Model Name: Select a model to generate the answer
-* Strictness: Send the same final concatenated prompt to the LLM model multiple times and take the majority result as the final answer for each RAI metric.
-* Add System Prompt: Define multiple system prompts to generate multiple answers for each question.
-* Separator: Delimiter to separate system prompt, context and question in the final concatenated prompt.
+**NLP Metrics** (compared against a ground truth reference answer):
+- ROUGE (1, 2, L), BLEU, BERTScore
 
-## Generate CSV Report:
-Upload a CSV file having Questions and Contexts. Write multiple prompts and change hyperparameters. Click on "Generate CSV Report" to generate all the metric results for each question and it's corresponding context.
+**LLM Judge Metrics** (a separate model scores the answers):
+- Answer Relevancy: generates a question from the answer and checks cosine similarity to the original
+- Faithfulness: extracts factual statements and verifies them against the context (returns a 0-1 ratio)
+- Critique: binary yes/no on criteria like harmfulness, coherence, correctness
+- Rubric Scoring: user-defined 1-5 scale criteria
+- Pairwise Comparison: head-to-head with position debiasing (runs both orderings)
 
-## How to run locally:
-If you want to run this app locally, first clone this repo using `git clone`.<br><br>
-Now, install all libraries by running the following command in the terminal:<br>
-```python
+**Other capabilities:**
+- Compare up to 10 system prompts side by side
+- Prompt templates with `{{variable}}` placeholders
+- Response caching to skip redundant API calls
+- Token count, latency, and cost tracking per request
+- Batch evaluation from CSV files
+- Separate judge model config (use a cheaper model for scoring)
+- Comparison dashboard with charts and JSON/CSV export
+
+## Pages
+
+| Page | What it does |
+|------|-------------|
+| Prompt Lab | Test one question with multiple prompts, see metrics |
+| Batch Eval | Upload a CSV, evaluate all rows, download results |
+| Comparison | Charts, pairwise matrix, cost summary, export |
+
+## Getting Started
+
+```bash
 pip install -r requirements.txt
-```
-  
-Now, run the app from the terminal:  
-```python
 streamlit run app.py
 ```
 
-Provide your own OpenAI API Key to generate answers and metrics. 
+**Cloud providers** (OpenAI, Anthropic, Google): paste your API key in the sidebar.
 
-This project is hosted on HuggingFace spaces: [Live Demo of LLM - Prompt Testing](https://huggingface.co/spaces/heliosbrahma/llm-prompt-testing).<br><br>
-_If you have any queries, you can open an issue. If you like this project, please ⭐ this repository._
+**Ollama** (local): install [Ollama](https://ollama.ai), run `ollama pull llama3`, select "ollama" as the provider. No API key needed.
+
+**Custom providers**: toggle "Custom model name" and enter the LiteLLM model ID (e.g. `together_ai/meta-llama/Llama-3-70b`).
+
+## CSV Format
+
+For batch evaluation, your CSV needs question and context columns. A ground truth column is optional but required for NLP metrics.
+
+| Question | Context | Ground Truth |
+|----------|---------|-------------|
+| What is X? | X is defined as... | X is a concept that... |
+
+Column names are auto-detected. You can remap them manually if needed.
+
+## Project Structure
+
+```
+app.py                  Entry point, sidebar config, navigation
+pages/
+  1_prompt_lab.py       Single-question testing + metrics
+  2_batch_eval.py       CSV batch processing
+  3_comparison.py       Results visualization + export
+core/
+  schemas.py            Pydantic data models
+  llm_client.py         LiteLLM wrapper, caching, cost tracking
+  metrics.py            NLP metrics + LLM judge evaluation
+  cache.py              Hash-based response caching
+  templates.py          Template variable rendering
+```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
